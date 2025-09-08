@@ -11,24 +11,12 @@ interface ServerFile {
   name: string;
 }
 
-interface AnalysisResultItem {
-  product_name: string;
-  delivery_date: string;
-  price_variations: number[];
-  sources: {
-    file_name: string;
-    order_unit: string;
-    price: number;
-  }[];
-}
-
 export default function Home() {
   const [fileItems, setFileItems] = useState<FileItem[]>([]);
   const [serverFiles, setServerFiles] = useState<ServerFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
   const [message, setMessage] = useState('');
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResultItem[] | null>(null);
 
   // 获取服务器上的文件列表
   const fetchServerFiles = async () => {
@@ -103,10 +91,8 @@ export default function Home() {
     if (fileInput) fileInput.value = '';
   };
 
-
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
   
   if (fileItems.length === 0) {
     setMessage('请选择至少一个文件');
@@ -158,6 +144,37 @@ export default function Home() {
     setMessage('上传过程中出错: ' + (error instanceof Error ? error.message : '未知错误'));
   } finally {
     setIsUploading(false);
+  }
+};
+
+// 添加新的状态
+const [priceInconsistencies, setPriceInconsistencies] = useState<any[]>([]);
+const [isCheckingPrices, setIsCheckingPrices] = useState(false);
+
+// 添加检查价格不一致的函数
+const checkPriceInconsistencies = async () => {
+  setIsCheckingPrices(true);
+  setMessage('');
+  try {
+    const response = await fetch('http://localhost:8000/check-price-inconsistencies');
+    const data = await response.json();
+    
+    if (response.ok) {
+      if (data.count > 0) {
+        setPriceInconsistencies(data.inconsistencies);
+        setMessage(`发现 ${data.count} 个商品存在价格不一致`);
+      } else {
+        setMessage('所有商品价格一致，未发现异常');
+        setPriceInconsistencies([]);
+      }
+    } else {
+      throw new Error(data.detail || '检查价格时出错');
+    }
+  } catch (error) {
+    setMessage('检查价格不一致时出错: ' + (error instanceof Error ? error.message : '未知错误'));
+    setPriceInconsistencies([]);
+  } finally {
+    setIsCheckingPrices(false);
   }
 };
 
@@ -382,8 +399,79 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+
             </div>
           )}
+        </div>
+
+        <div style={{ 
+        backgroundColor: '#1a1a1a',
+        padding: '2rem',
+        borderRadius: '8px',
+        marginTop: '2rem'
+      }}>
+        <h2 style={{ marginTop: 0 }}>价格一致性检查</h2>
+        <button
+          onClick={checkPriceInconsistencies}
+          disabled={isCheckingPrices}
+          style={{
+            padding: '12px 24px',
+            backgroundColor: isCheckingPrices ? '#666' : '#4CAF50',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: isCheckingPrices ? 'not-allowed' : 'pointer',
+            fontSize: '1.1rem',
+            fontWeight: '600',
+            transition: 'all 0.2s',
+            marginBottom: '1rem'
+          }}
+        >
+          {isCheckingPrices ? '检查中...' : '检查价格不一致'}
+        </button>
+
+        {priceInconsistencies.length > 0 && (
+          <div style={{ 
+            backgroundColor: '#ff4444',
+            padding: '1rem',
+            borderRadius: '8px',
+            marginTop: '1rem'
+          }}>
+            <h3 style={{ color: 'white', marginTop: 0 }}>⚠️ 价格不一致商品</h3>
+            
+            {priceInconsistencies.map((item, index) => (
+              <div key={index} style={{ 
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                padding: '1rem',
+                borderRadius: '8px',
+                marginBottom: '1rem',
+                textAlign: 'left'
+              }}>
+                <p style={{ margin: '0 0 0.5rem 0', fontWeight: 'bold' }}>
+                  商品: {item.product_name}
+                </p>
+                <p style={{ margin: '0 0 0.5rem 0' }}>
+                  日期: {item.delivery_date}
+                </p>
+                <p style={{ margin: '0 0 0.5rem 0' }}>
+                  价格变化: {item.price_variations.join(', ')}
+                </p>
+                
+                <h4 style={{ margin: '1rem 0 0.5rem 0' }}>相关记录:</h4>
+                <ul style={{ paddingLeft: '1rem' }}>
+                  {item.records.map((record: any, recordIndex: number) => (
+                    <li key={recordIndex} style={{ marginBottom: '0.5rem' }}>
+                      <div>订货单位: {record.ordering_unit}</div>
+                      <div>送货单位: {record.delivery_unit}</div>
+                      <div>价格: {record.settlement_price}</div>
+                      <div>创建时间: {new Date(record.created_time).toLocaleString()}</div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
         </div>
         
         {message && (
@@ -395,46 +483,6 @@ export default function Home() {
             marginTop: '2rem'
           }}>
             {message}
-          </div>
-        )}
-        
-        {analysisResult && analysisResult.length > 0 && (
-          <div style={{ 
-            backgroundColor: '#ff4444',
-            padding: '2rem',
-            borderRadius: '8px',
-            marginTop: '2rem'
-          }}>
-            <h2 style={{ marginTop: 0, color: 'white' }}>⚠️ 价格不一致警告</h2>
-            <p style={{ color: 'white' }}>发现以下商品在不同送货单中存在价格不一致：</p>
-            
-            {analysisResult.map((item, index) => (
-              <div key={index} style={{ 
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                padding: '1rem',
-                borderRadius: '8px',
-                marginBottom: '1rem'
-              }}>
-                <h3 style={{ color: 'white', margin: '0 0 0.5rem 0' }}>
-                  商品: {item.product_name}
-                </h3>
-                <p style={{ color: 'white', margin: '0 0 0.5rem 0' }}>
-                  送货日期: {item.delivery_date}
-                </p>
-                <p style={{ color: 'white', margin: '0 0 0.5rem 0' }}>
-                  价格变化: {item.price_variations.join(', ')}
-                </p>
-                
-                <h4 style={{ color: 'white', margin: '0 0 0.5rem 0' }}>来源文件:</h4>
-                <ul style={{ color: 'white', paddingLeft: '1rem' }}>
-                  {item.sources.map((source, sourceIndex) => (
-                    <li key={sourceIndex}>
-                      {source.file_name} - {source.order_unit} - 价格: {source.price}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
           </div>
         )}
       </main>
